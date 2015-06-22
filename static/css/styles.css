@@ -1,0 +1,56 @@
+body { padding-top: 90px; }
+@media screen and (max-width: 768px) {
+    body { padding-top: 0px; }
+}
+form { padding-top: 10px; }
+select { margin-top: 6px; }
+input.choose-file {
+    margin: 6px 0px 0px 2px;
+    padding: 0px 0px 0px 0px;
+}
+img.item {
+    float: left;
+    padding: 0 20px 15px 0;
+}
+.btn {
+    margin: 3px 3px 3px 3px;
+}
+.img-buttons { clear: both; }
+.well {
+    padding-top: 0px;
+}
+.glyphicon { margin-right: 6px; }
+.padding-top { padding-top: 30px; }
+.padding-top-med { padding-top: 15px; }
+.padding-bottom { padding-bottom: 30px; }
+.margin-top { margin-top: 30px; }
+.margin-top-med { margin-top: 15px; }
+.container hr {
+    margin: 2px 0 15px 0;
+    border-width: 2px 0;
+    border-color: #DDDDDD;
+    background-color: black;
+}
+.social-box {
+  margin: 0 auto;
+  padding: 20px;
+}
+.social-box .row {
+  margin-bottom: 11px;
+}
+.signin {
+  max-width: 400px;
+  height: 230px;
+  display: block;
+  margin: 0px auto 20px auto;
+  background-color: #e7e7e7;
+  border-radius: 5px;
+  border-bottom: 1px #ccc solid;
+  text-align: center;
+}
+.heading-desc {
+  font-size: 20px;
+  font-weight: bold;
+  padding: 20px 38px 0px 38px;
+}
+

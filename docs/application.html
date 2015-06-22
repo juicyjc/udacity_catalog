@@ -1,0 +1,1764 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html;charset=utf-8">
+  <title>application.py</title>
+  <link rel="stylesheet" href="pycco.css">
+</head>
+<body>
+<div id='container'>
+  <div id="background"></div>
+  <div class='section'>
+    <div class='docs'><h1>application.py</h1></div>
+  </div>
+  <div class='clearall'>
+  <div class='section' id='section-0'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-0'>#</a>
+      </div>
+      <p>appliction.py - Starts the webserver and contains the code for the
+                Catalog App</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">random</span>
+<span class="kn">import</span> <span class="nn">string</span>
+<span class="kn">import</span> <span class="nn">httplib2</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">requests</span>
+<span class="kn">from</span> <span class="nn">flask</span> <span class="kn">import</span> <span class="n">Flask</span><span class="p">,</span> <span class="n">render_template</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">redirect</span>
+<span class="kn">from</span> <span class="nn">flask</span> <span class="kn">import</span> <span class="n">url_for</span><span class="p">,</span> <span class="n">flash</span><span class="p">,</span> <span class="n">jsonify</span><span class="p">,</span> <span class="n">make_response</span>
+<span class="kn">from</span> <span class="nn">flask</span> <span class="kn">import</span> <span class="n">session</span> <span class="k">as</span> <span class="n">login_session</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy</span> <span class="kn">import</span> <span class="n">create_engine</span>
+<span class="kn">from</span> <span class="nn">sqlalchemy.orm</span> <span class="kn">import</span> <span class="n">sessionmaker</span>
+<span class="kn">from</span> <span class="nn">oauth2client.client</span> <span class="kn">import</span> <span class="n">flow_from_clientsecrets</span>
+<span class="kn">from</span> <span class="nn">oauth2client.client</span> <span class="kn">import</span> <span class="n">FlowExchangeError</span>
+<span class="kn">from</span> <span class="nn">oauth2client.client</span> <span class="kn">import</span> <span class="n">AccessTokenCredentials</span>
+<span class="kn">from</span> <span class="nn">database_setup</span> <span class="kn">import</span> <span class="n">Category</span><span class="p">,</span> <span class="n">Base</span><span class="p">,</span> <span class="n">Item</span><span class="p">,</span> <span class="n">User</span>
+<span class="kn">from</span> <span class="nn">werkzeug</span> <span class="kn">import</span> <span class="n">secure_filename</span>
+<span class="kn">from</span> <span class="nn">werkzeug.contrib.atom</span> <span class="kn">import</span> <span class="n">AtomFeed</span>
+<span class="kn">from</span> <span class="nn">urlparse</span> <span class="kn">import</span> <span class="n">urljoin</span>
+<span class="kn">from</span> <span class="nn">xml.etree</span> <span class="kn">import</span> <span class="n">ElementTree</span> <span class="k">as</span> <span class="n">ET</span>
+
+<span class="n">app</span> <span class="o">=</span> <span class="n">Flask</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+
+<span class="n">CLIENT_ID</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s">&#39;client_secrets.json&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;r&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">())[</span><span class="s">&#39;web&#39;</span><span class="p">][</span><span class="s">&#39;client_id&#39;</span><span class="p">]</span>
+<span class="n">APPLICATION_NAME</span> <span class="o">=</span> <span class="s">&quot;Catalog Application&quot;</span>
+<span class="n">UPLOAD_FOLDER</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">realpath</span><span class="p">(</span><span class="n">__file__</span><span class="p">)),</span>
+                             <span class="s">&quot;static&quot;</span><span class="p">,</span>
+                             <span class="s">&quot;img&quot;</span><span class="p">,)</span>
+<span class="n">READ_FOLDER</span> <span class="o">=</span> <span class="s">&#39;/static/img/&#39;</span>
+<span class="n">ALLOWED_EXTENSIONS</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="s">&#39;png&#39;</span><span class="p">,</span> <span class="s">&#39;jpg&#39;</span><span class="p">,</span> <span class="s">&#39;jpeg&#39;</span><span class="p">,</span> <span class="s">&#39;gif&#39;</span><span class="p">])</span>
+<span class="n">DEFAULT_THEME</span> <span class="o">=</span> <span class="s">&#39;readable&#39;</span>
+
+<span class="n">engine</span> <span class="o">=</span> <span class="n">create_engine</span><span class="p">(</span><span class="s">&#39;sqlite:///catalog.db&#39;</span><span class="p">)</span>
+<span class="n">Base</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">bind</span> <span class="o">=</span> <span class="n">engine</span>
+
+<span class="n">DBSession</span> <span class="o">=</span> <span class="n">sessionmaker</span><span class="p">(</span><span class="n">bind</span><span class="o">=</span><span class="n">engine</span><span class="p">)</span>
+<span class="n">session</span> <span class="o">=</span> <span class="n">DBSession</span><span class="p">()</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-1'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-1'>#</a>
+      </div>
+      <h3><span id="create-anti-forgery-state-token." href="create-anti-forgery-state-token."> Create anti-forgery state token. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/login&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">showLogin</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-2'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-2'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    Template:  login.html
+        STATE:  the state token</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">state</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">random</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">string</span><span class="o">.</span><span class="n">ascii_uppercase</span> <span class="o">+</span> <span class="n">string</span><span class="o">.</span><span class="n">digits</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">32</span><span class="p">))</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;state&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span>
+    <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;login.html&#39;</span><span class="p">,</span> <span class="n">STATE</span><span class="o">=</span><span class="n">state</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-3'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-3'>#</a>
+      </div>
+      <h3><span id="login-with-facebook." href="login-with-facebook.">  Login with Facebook. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/fbconnect&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">fbconnect</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;state&#39;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;state&#39;</span><span class="p">]:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="s">&#39;Invalid state parameter.&#39;</span><span class="p">),</span> <span class="mi">401</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+        <span class="k">return</span> <span class="n">response</span>
+    <span class="n">access_token</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">data</span>
+    <span class="k">print</span> <span class="s">&quot;access token received </span><span class="si">%s</span><span class="s"> &quot;</span> <span class="o">%</span> <span class="n">access_token</span>
+
+    <span class="n">app_id</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="s">&#39;fb_client_secrets.json&#39;</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">())[</span>
+        <span class="s">&#39;web&#39;</span><span class="p">][</span><span class="s">&#39;app_id&#39;</span><span class="p">]</span>
+    <span class="n">app_secret</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span>
+        <span class="nb">open</span><span class="p">(</span><span class="s">&#39;fb_client_secrets.json&#39;</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">())[</span><span class="s">&#39;web&#39;</span><span class="p">][</span><span class="s">&#39;app_secret&#39;</span><span class="p">]</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="s">&#39;https://graph.facebook.com/oauth/access_token?grant_type=fb_exchange_token&amp;client_id=</span><span class="si">%s</span><span class="s">&amp;client_secret=</span><span class="si">%s</span><span class="s">&amp;fb_exchange_token=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span>
+        <span class="n">app_id</span><span class="p">,</span> <span class="n">app_secret</span><span class="p">,</span> <span class="n">access_token</span><span class="p">)</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">httplib2</span><span class="o">.</span><span class="n">Http</span><span class="p">()</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="s">&#39;GET&#39;</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-4'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-4'>#</a>
+      </div>
+      <p>Use token to get user info from API
+strip expire tag from access token</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">token</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;&amp;&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="n">url</span> <span class="o">=</span> <span class="s">&#39;https://graph.facebook.com/v2.2/me?</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">token</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">httplib2</span><span class="o">.</span><span class="n">Http</span><span class="p">()</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="s">&#39;GET&#39;</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">result</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-5'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-5'>#</a>
+      </div>
+      <p>set the session variables</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;provider&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;facebook&#39;</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&quot;name&quot;</span><span class="p">]</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&quot;email&quot;</span><span class="p">]</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;facebook_id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">]</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-6'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-6'>#</a>
+      </div>
+      <p>The token must be stored in the login_session in order to properly
+logout, let's strip out the information before the equals sign in
+our token</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">stored_token</span> <span class="o">=</span> <span class="n">token</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;=&quot;</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;access_token&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">stored_token</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-7'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-7'>#</a>
+      </div>
+      <p>see if user exists</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">user_id</span> <span class="o">=</span> <span class="n">getUserID</span><span class="p">(</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">])</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">user_id</span><span class="p">:</span>
+        <span class="n">user_id</span> <span class="o">=</span> <span class="n">createUser</span><span class="p">(</span><span class="n">login_session</span><span class="p">)</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">user_id</span>
+
+    <span class="n">flash</span><span class="p">(</span><span class="s">&quot;Now logged in as </span><span class="si">%s</span><span class="s">.&quot;</span> <span class="o">%</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">])</span>
+    <span class="k">return</span> <span class="s">&quot;success&quot;</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-8'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-8'>#</a>
+      </div>
+      <h3><span id="disconnect-from-facebook." href="disconnect-from-facebook."> Disconnect from Facebook. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/fbdisconnect&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">fbdisconnect</span><span class="p">():</span>
+    <span class="n">facebook_id</span> <span class="o">=</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;facebook_id&#39;</span><span class="p">]</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-9'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-9'>#</a>
+      </div>
+      <p>The access token must be included to successfully logout</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">access_token</span> <span class="o">=</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;access_token&#39;</span><span class="p">]</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="s">&#39;https://graph.facebook.com/</span><span class="si">%s</span><span class="s">/permissions?fb_exchange_token=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span>
+        <span class="n">facebook_id</span><span class="p">,</span> <span class="n">access_token</span><span class="p">)</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">httplib2</span><span class="o">.</span><span class="n">Http</span><span class="p">()</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="s">&#39;DELETE&#39;</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">return</span> <span class="s">&quot;success&quot;</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-10'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-10'>#</a>
+      </div>
+      <h3><span id="login-with-google." href="login-with-google."> Login with Google. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/gconnect&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">gconnect</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-11'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-11'>#</a>
+      </div>
+      <p>Validate state token</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;state&#39;</span><span class="p">)</span> <span class="o">!=</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;state&#39;</span><span class="p">]:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="s">&#39;Invalid state parameter.&#39;</span><span class="p">),</span> <span class="mi">401</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+        <span class="k">return</span> <span class="n">response</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-12'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-12'>#</a>
+      </div>
+      <p>Obtain authorization code</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">code</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">data</span>
+
+    <span class="k">try</span><span class="p">:</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-13'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-13'>#</a>
+      </div>
+      <p>Upgrade the authorization code into a credentials object</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>        <span class="n">oauth_flow</span> <span class="o">=</span> <span class="n">flow_from_clientsecrets</span><span class="p">(</span><span class="s">&#39;client_secrets.json&#39;</span><span class="p">,</span> <span class="n">scope</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="n">oauth_flow</span><span class="o">.</span><span class="n">redirect_uri</span> <span class="o">=</span> <span class="s">&#39;postmessage&#39;</span>
+        <span class="n">credentials</span> <span class="o">=</span> <span class="n">oauth_flow</span><span class="o">.</span><span class="n">step2_exchange</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">FlowExchangeError</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="s">&#39;Failed to upgrade the authorization code.&#39;</span><span class="p">),</span> <span class="mi">401</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+        <span class="k">return</span> <span class="n">response</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-14'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-14'>#</a>
+      </div>
+      <p>Check that the access token is valid.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">access_token</span> <span class="o">=</span> <span class="n">credentials</span><span class="o">.</span><span class="n">access_token</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=</span><span class="si">%s</span><span class="s">&#39;</span>
+           <span class="o">%</span> <span class="n">access_token</span><span class="p">)</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">httplib2</span><span class="o">.</span><span class="n">Http</span><span class="p">()</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">h</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="s">&#39;GET&#39;</span><span class="p">)[</span><span class="mi">1</span><span class="p">])</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-15'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-15'>#</a>
+      </div>
+      <p>If there was an error in the access token info, abort.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;error&#39;</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;error&#39;</span><span class="p">)),</span> <span class="mi">500</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-16'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-16'>#</a>
+      </div>
+      <p>Verify that the access token is used for the intended user.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">gplus_id</span> <span class="o">=</span> <span class="n">credentials</span><span class="o">.</span><span class="n">id_token</span><span class="p">[</span><span class="s">&#39;sub&#39;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]</span> <span class="o">!=</span> <span class="n">gplus_id</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="s">&quot;Token&#39;s user ID doesn&#39;t match given user ID.&quot;</span><span class="p">),</span> <span class="mi">401</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+        <span class="k">return</span> <span class="n">response</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-17'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-17'>#</a>
+      </div>
+      <p>Verify that the access token is valid for this app.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;issued_to&#39;</span><span class="p">]</span> <span class="o">!=</span> <span class="n">CLIENT_ID</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="s">&quot;Token&#39;s client ID does not match app&#39;s.&quot;</span><span class="p">),</span> <span class="mi">401</span><span class="p">)</span>
+        <span class="k">print</span> <span class="s">&quot;Token&#39;s client ID does not match app&#39;s.&quot;</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+        <span class="k">return</span> <span class="n">response</span>
+
+    <span class="n">stored_credentials</span> <span class="o">=</span> <span class="n">login_session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;credentials&#39;</span><span class="p">)</span>
+    <span class="n">stored_gplus_id</span> <span class="o">=</span> <span class="n">login_session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;gplus_id&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">stored_credentials</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">gplus_id</span> <span class="o">==</span> <span class="n">stored_gplus_id</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span>
+                     <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="s">&#39;Current user is already connected.&#39;</span><span class="p">),</span> <span class="mi">200</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+        <span class="k">return</span> <span class="n">response</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-18'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-18'>#</a>
+      </div>
+      <p>Store the access token in the session for later use.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;credentials&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">credentials</span><span class="o">.</span><span class="n">access_token</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;gplus_id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">gplus_id</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-19'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-19'>#</a>
+      </div>
+      <p>Get user info</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">userinfo_url</span> <span class="o">=</span> <span class="s">&quot;https://www.googleapis.com/oauth2/v1/userinfo&quot;</span>
+    <span class="n">params</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;access_token&#39;</span><span class="p">:</span> <span class="n">credentials</span><span class="o">.</span><span class="n">access_token</span><span class="p">,</span> <span class="s">&#39;alt&#39;</span><span class="p">:</span> <span class="s">&#39;json&#39;</span><span class="p">}</span>
+    <span class="n">answer</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">userinfo_url</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">)</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">answer</span><span class="o">.</span><span class="n">json</span><span class="p">()</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-20'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-20'>#</a>
+      </div>
+      <p>set the session variables</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">]</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;provider&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;google&#39;</span>
+
+    <span class="n">user_id</span> <span class="o">=</span> <span class="n">getUserID</span><span class="p">(</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">])</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">user_id</span><span class="p">:</span>
+        <span class="n">user_id</span> <span class="o">=</span> <span class="n">createUser</span><span class="p">(</span><span class="n">login_session</span><span class="p">)</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">user_id</span>
+
+    <span class="n">flash</span><span class="p">(</span><span class="s">&quot;You are now logged in as </span><span class="si">%s</span><span class="s">.&quot;</span> <span class="o">%</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">])</span>
+    <span class="k">return</span> <span class="s">&#39;success&#39;</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-21'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-21'>#</a>
+      </div>
+      <h3><span id="disconnect-from-google." href="disconnect-from-google."> Disconnect from Google. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/gdisconnect&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">gdisconnect</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-22'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-22'>#</a>
+      </div>
+      <p>Revoke a current user's token and reset their login_session.</p>
+<p>Only disconnect a connected user.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">credentials</span> <span class="o">=</span> <span class="n">AccessTokenCredentials</span><span class="p">(</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;credentials&#39;</span><span class="p">],</span>
+                                         <span class="s">&#39;user-agent-value&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">credentials</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="s">&#39;Current user not connected.&#39;</span><span class="p">),</span> <span class="mi">401</span><span class="p">)</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+        <span class="k">return</span> <span class="n">response</span>
+    <span class="n">access_token</span> <span class="o">=</span> <span class="n">credentials</span><span class="o">.</span><span class="n">access_token</span>
+    <span class="n">url</span> <span class="o">=</span> <span class="s">&#39;https://accounts.google.com/o/oauth2/revoke?token=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">access_token</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">httplib2</span><span class="o">.</span><span class="n">Http</span><span class="p">()</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="n">h</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="s">&#39;GET&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">result</span><span class="p">[</span><span class="s">&#39;status&#39;</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;200&#39;</span><span class="p">:</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-23'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-23'>#</a>
+      </div>
+      <p>For whatever reason, the given token was invalid.</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>        <span class="n">response</span> <span class="o">=</span> <span class="n">make_response</span><span class="p">(</span>
+            <span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="s">&#39;Failed to revoke token for given user.&#39;</span><span class="p">,</span> <span class="mi">400</span><span class="p">))</span>
+        <span class="n">response</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;application/json&#39;</span>
+        <span class="k">return</span> <span class="n">response</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-24'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-24'>#</a>
+      </div>
+      <h3><span id="disconnect-based-on-provider." href="disconnect-based-on-provider."> Disconnect based on provider. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/disconnect&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">disconnect</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-25'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-25'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    redirect:  showCatalog</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="s">&#39;provider&#39;</span> <span class="ow">in</span> <span class="n">login_session</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;provider&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;google&#39;</span><span class="p">:</span>
+            <span class="n">gdisconnect</span><span class="p">()</span>
+            <span class="k">del</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;gplus_id&#39;</span><span class="p">]</span>
+            <span class="k">del</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;credentials&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;provider&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;facebook&#39;</span><span class="p">:</span>
+            <span class="n">fbdisconnect</span><span class="p">()</span>
+            <span class="k">del</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;facebook_id&#39;</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;provider&#39;</span><span class="p">]</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;You have successfully been logged out.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showCatalog&#39;</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;You were not logged in.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showCatalog&#39;</span><span class="p">))</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-26'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-26'>#</a>
+      </div>
+      <h3><span id="set-the-bootstrap-theme-based-on-the-user's-selection." href="set-the-bootstrap-theme-based-on-the-user's-selection."> Set the Bootstrap theme based on the user's selection. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/theme/&lt;theme_name&gt;&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">theme</span><span class="p">(</span><span class="n">theme_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-27'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-27'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    theme_name:  the name of the theme selected by the user</p>
+<p><strong>Returns:</strong>
+    redirect:  showCatalog</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">setTheme</span><span class="p">(</span><span class="n">theme_name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showCatalog&#39;</span><span class="p">))</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-28'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-28'>#</a>
+      </div>
+      <h3><span id="display-the-catalog---genres-and-books." href="display-the-catalog---genres-and-books."> Display the catalog - genres and books. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+<span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">showCatalog</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-29'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-29'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    template:  catalog.html
+        items:  a list of recent books
+        item_num:  the nuber of books
+        logged_in:  boolean</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">setDefaults</span><span class="p">()</span>
+    <span class="n">items</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">Item</span><span class="o">.</span><span class="n">date_modified</span><span class="o">.</span><span class="n">desc</span><span class="p">())</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+    <span class="n">item_num</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span>
+                <span class="n">Item</span><span class="o">.</span><span class="n">date_modified</span><span class="o">.</span><span class="n">desc</span><span class="p">())</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+    <span class="n">logged_in</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="k">if</span> <span class="s">&#39;username&#39;</span> <span class="ow">in</span> <span class="n">login_session</span><span class="p">:</span>
+        <span class="n">logged_in</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;catalog.html&#39;</span><span class="p">,</span> <span class="n">items</span><span class="o">=</span><span class="n">items</span><span class="p">,</span>
+                           <span class="n">item_num</span><span class="o">=</span><span class="n">item_num</span><span class="p">,</span> <span class="n">logged_in</span><span class="o">=</span><span class="n">logged_in</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-30'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-30'>#</a>
+      </div>
+      <h3><span id="display-the-items-in-the-selected-category." href="display-the-items-in-the-selected-category."> Display the items in the selected category. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;/items&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">showItems</span><span class="p">(</span><span class="n">category_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-31'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-31'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  the category that we're displaying</p>
+<p><strong>Returns:</strong>
+    template:  items.html
+        items:  the books in this category
+        item_num:  the number of books
+        category_name:  the selected category
+        logged_in:  boolean
+        is_creator:  boolean is the logged in user the creator of this
+                     category?</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">category</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">category_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="n">items</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span>
+              <span class="n">category_id</span><span class="o">=</span><span class="n">category</span><span class="o">.</span><span class="n">id</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">Item</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">asc</span><span class="p">())</span>
+    <span class="n">item_num</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">category_id</span><span class="o">=</span><span class="n">category</span><span class="o">.</span><span class="n">id</span><span class="p">)</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+    <span class="n">creator</span> <span class="o">=</span> <span class="n">getUserInfo</span><span class="p">(</span><span class="n">category</span><span class="o">.</span><span class="n">user_id</span><span class="p">)</span>
+    <span class="n">logged_in</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">is_creator</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="k">if</span> <span class="s">&#39;username&#39;</span> <span class="ow">in</span> <span class="n">login_session</span><span class="p">:</span>
+        <span class="n">logged_in</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="n">creator</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]:</span>
+            <span class="n">is_creator</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;items.html&#39;</span><span class="p">,</span> <span class="n">items</span><span class="o">=</span><span class="n">items</span><span class="p">,</span> <span class="n">item_num</span><span class="o">=</span><span class="n">item_num</span><span class="p">,</span>
+                           <span class="n">category_name</span><span class="o">=</span><span class="n">category_name</span><span class="p">,</span> <span class="n">logged_in</span><span class="o">=</span><span class="n">logged_in</span><span class="p">,</span>
+                           <span class="n">is_creator</span><span class="o">=</span><span class="n">is_creator</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-32'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-32'>#</a>
+      </div>
+      <h3><span id="create-a-new-category." href="create-a-new-category."> Create a new Category. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/category/new&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;GET&#39;</span><span class="p">,</span> <span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">newCategory</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-33'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-33'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    GET:
+        template:  newCategory.html
+    POST:
+        redirect:  showCatalog</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="ow">not</span> <span class="n">checkLogin</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showLogin&#39;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s">&#39;POST&#39;</span><span class="p">:</span>
+        <span class="n">newCategory</span> <span class="o">=</span> <span class="n">Category</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">],</span>
+                               <span class="n">user_id</span><span class="o">=</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">])</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">newCategory</span><span class="p">)</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="n">setCategories</span><span class="p">()</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;New Genre Created&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showCatalog&#39;</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;newCategory.html&#39;</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-34'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-34'>#</a>
+      </div>
+      <h3><span id="edit-a-category." href="edit-a-category."> Edit a Category. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;/edit&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;GET&#39;</span><span class="p">,</span> <span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">editCategory</span><span class="p">(</span><span class="n">category_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-35'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-35'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  the category that we're editing</p>
+<p><strong>Returns:</strong>
+    GET:
+        template:  editCategory.html
+            category:  the category object
+    POST:
+        redirect:  showItems
+            category_name:  the category we're editing</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="ow">not</span> <span class="n">checkLogin</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showLogin&#39;</span><span class="p">))</span>
+    <span class="n">category</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">category_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-36'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-36'>#</a>
+      </div>
+      <p>If not the author of this category, redirect to home page</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="n">category</span><span class="o">.</span><span class="n">user_id</span> <span class="o">!=</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]:</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;You can only edit your own genres.&quot;</span><span class="p">,</span> <span class="s">&#39;error&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s">&#39;POST&#39;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]:</span>
+            <span class="n">category</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">category</span><span class="p">)</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="n">setCategories</span><span class="p">()</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;Genre Successfully Edited&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showItems&#39;</span><span class="p">,</span> <span class="n">category_name</span><span class="o">=</span><span class="n">category</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;editCategory.html&#39;</span><span class="p">,</span> <span class="n">category</span><span class="o">=</span><span class="n">category</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-37'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-37'>#</a>
+      </div>
+      <h3><span id="delete-a-category." href="delete-a-category."> Delete a Category. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;/delete&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;GET&#39;</span><span class="p">,</span> <span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">deleteCategory</span><span class="p">(</span><span class="n">category_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-38'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-38'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  the category that we're deleting</p>
+<p><strong>Returns:</strong>
+    GET:
+        template:  deleteCategory.html
+            category:  the category object
+    POST:
+        redirect:  showCatalog</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="ow">not</span> <span class="n">checkLogin</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showLogin&#39;</span><span class="p">))</span>
+    <span class="n">category</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">category_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-39'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-39'>#</a>
+      </div>
+      <p>If not the author of this category, redirect to home page</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="n">category</span><span class="o">.</span><span class="n">user_id</span> <span class="o">!=</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]:</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;You can only delete your own genres.&quot;</span><span class="p">,</span> <span class="s">&#39;error&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s">&#39;POST&#39;</span><span class="p">:</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">category</span><span class="p">)</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="n">setCategories</span><span class="p">()</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;Genre Successfully Deleted&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showCatalog&#39;</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;deleteCategory.html&#39;</span><span class="p">,</span> <span class="n">category</span><span class="o">=</span><span class="n">category</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-40'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-40'>#</a>
+      </div>
+      <h3><span id="display-a-book." href="display-a-book."> Display a book. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;/&lt;item_name&gt;&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">showItem</span><span class="p">(</span><span class="n">category_name</span><span class="p">,</span> <span class="n">item_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-41'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-41'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  the category that we're displaying
+    item_name:  the item that we're displaying</p>
+<p><strong>Returns:</strong>
+    template:  item.html
+          item:  the item object
+          image_path:  path to the item's image
+          logged_in:  boolean
+          is_creator:  boolean</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">item</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">item_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="n">image_path</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">image_name</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">image_path</span> <span class="o">=</span> <span class="n">READ_FOLDER</span> <span class="o">+</span> <span class="n">item</span><span class="o">.</span><span class="n">image_name</span>
+    <span class="n">creator</span> <span class="o">=</span> <span class="n">getUserInfo</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">user_id</span><span class="p">)</span>
+    <span class="n">logged_in</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">is_creator</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="k">if</span> <span class="s">&#39;username&#39;</span> <span class="ow">in</span> <span class="n">login_session</span><span class="p">:</span>
+        <span class="n">logged_in</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="n">creator</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]:</span>
+            <span class="n">is_creator</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;item.html&#39;</span><span class="p">,</span> <span class="n">item</span><span class="o">=</span><span class="n">item</span><span class="p">,</span> <span class="n">image_path</span><span class="o">=</span><span class="n">image_path</span><span class="p">,</span>
+                           <span class="n">logged_in</span><span class="o">=</span><span class="n">logged_in</span><span class="p">,</span> <span class="n">is_creator</span><span class="o">=</span><span class="n">is_creator</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-42'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-42'>#</a>
+      </div>
+      <h3><span id="create-a-book." href="create-a-book."> Create a book. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/item/new&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;GET&#39;</span><span class="p">,</span> <span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">newItem</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-43'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-43'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    GET:
+        template:  newItem.html
+            category_name:  the category of the new book
+    POST:
+        redirect:  showCatalog</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="ow">not</span> <span class="n">checkLogin</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showLogin&#39;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s">&#39;POST&#39;</span><span class="p">:</span>
+        <span class="nb">file</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">files</span><span class="p">[</span><span class="s">&#39;image&#39;</span><span class="p">]</span>
+        <span class="n">image_name</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="nb">file</span> <span class="ow">and</span> <span class="n">allowed_file</span><span class="p">(</span><span class="nb">file</span><span class="o">.</span><span class="n">filename</span><span class="p">):</span>
+            <span class="n">image_name</span> <span class="o">=</span> <span class="n">secure_filename</span><span class="p">(</span><span class="nb">file</span><span class="o">.</span><span class="n">filename</span><span class="p">)</span>
+            <span class="nb">file</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">getImagePath</span><span class="p">(</span><span class="n">image_name</span><span class="p">))</span>
+        <span class="n">newItem</span> <span class="o">=</span> <span class="n">Item</span><span class="p">(</span><span class="n">category_id</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;category_id&#39;</span><span class="p">],</span>
+                       <span class="n">name</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">],</span>
+                       <span class="n">description</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;description&#39;</span><span class="p">],</span>
+                       <span class="n">image_name</span><span class="o">=</span><span class="n">image_name</span><span class="p">,</span>
+                       <span class="n">user_id</span><span class="o">=</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">])</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">newItem</span><span class="p">)</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;New Book Created&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showCatalog&#39;</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">category_name</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;category_name&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;newItem.html&#39;</span><span class="p">,</span> <span class="n">category_name</span><span class="o">=</span><span class="n">category_name</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-44'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-44'>#</a>
+      </div>
+      <h3><span id="edit-a-book." href="edit-a-book."> Edit a book. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;/&lt;item_name&gt;/edit&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;GET&#39;</span><span class="p">,</span> <span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">editItem</span><span class="p">(</span><span class="n">category_name</span><span class="p">,</span> <span class="n">item_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-45'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-45'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+      category_name:  the category of the book that we're editing
+      item_name:  the item that we're editing</p>
+<p><strong>Returns:</strong>
+    GET:
+        template:  editItem.html
+            item:  the item object
+  POST:
+        redirect:  showItems
+            category_name:  the category of the book</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="ow">not</span> <span class="n">checkLogin</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showLogin&#39;</span><span class="p">))</span>
+    <span class="n">item</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">item_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-46'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-46'>#</a>
+      </div>
+      <p>If not the author of this item, redirect to home page</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">user_id</span> <span class="o">!=</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]:</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;You can only edit your own books.&quot;</span><span class="p">,</span> <span class="s">&#39;error&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s">&#39;POST&#39;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]:</span>
+            <span class="n">item</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;description&#39;</span><span class="p">]:</span>
+            <span class="n">item</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;description&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;category_id&#39;</span><span class="p">]:</span>
+            <span class="n">item</span><span class="o">.</span><span class="n">category_id</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">form</span><span class="p">[</span><span class="s">&#39;category_id&#39;</span><span class="p">]</span>
+        <span class="nb">file</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">files</span><span class="p">[</span><span class="s">&#39;image&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">file</span> <span class="ow">and</span> <span class="n">allowed_file</span><span class="p">(</span><span class="nb">file</span><span class="o">.</span><span class="n">filename</span><span class="p">):</span>
+            <span class="n">new_image_name</span> <span class="o">=</span> <span class="n">secure_filename</span><span class="p">(</span><span class="nb">file</span><span class="o">.</span><span class="n">filename</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-47'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-47'>#</a>
+      </div>
+      <p>If the new image name is not the same as the old</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>            <span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">image_name</span> <span class="o">!=</span> <span class="n">new_image_name</span><span class="p">:</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-48'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-48'>#</a>
+      </div>
+      <p>Delete the old image</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>                <span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">image_name</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">getImagePath</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">image_name</span><span class="p">))</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-49'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-49'>#</a>
+      </div>
+      <p>Set the new image name</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>                <span class="n">item</span><span class="o">.</span><span class="n">image_name</span> <span class="o">=</span> <span class="n">new_image_name</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-50'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-50'>#</a>
+      </div>
+      <p>Save the new image</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>                <span class="nb">file</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">getImagePath</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">image_name</span><span class="p">))</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;Book Successfully Edited&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showItems&#39;</span><span class="p">,</span> <span class="n">category_name</span><span class="o">=</span><span class="n">category_name</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;editItem.html&#39;</span><span class="p">,</span> <span class="n">item</span><span class="o">=</span><span class="n">item</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-51'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-51'>#</a>
+      </div>
+      <h3><span id="delete-a-book." href="delete-a-book."> Delete a book. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;/&lt;item_name&gt;/delete&#39;</span><span class="p">,</span> <span class="n">methods</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;GET&#39;</span><span class="p">,</span> <span class="s">&#39;POST&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">deleteItem</span><span class="p">(</span><span class="n">category_name</span><span class="p">,</span> <span class="n">item_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-52'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-52'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+      category_name:  the category of the book that we're deleting
+      item_name:  the item that we're deleting</p>
+<p><strong>Returns:</strong>
+    GET:
+        template:  deleteItem.html
+            item:  the item object
+    POST:
+        redirect:  showItems
+            category_name:  the category of the book</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="ow">not</span> <span class="n">checkLogin</span><span class="p">():</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showLogin&#39;</span><span class="p">))</span>
+    <span class="n">item</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">item_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-53'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-53'>#</a>
+      </div>
+      <p>If not the author of this item, redirect to home page</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">user_id</span> <span class="o">!=</span> <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;user_id&#39;</span><span class="p">]:</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;You can only delete your own books.&quot;</span><span class="p">,</span> <span class="s">&#39;error&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">request</span><span class="o">.</span><span class="n">method</span> <span class="o">==</span> <span class="s">&#39;POST&#39;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">item</span><span class="o">.</span><span class="n">image_name</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">getImagePath</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">image_name</span><span class="p">))</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+        <span class="n">flash</span><span class="p">(</span><span class="s">&quot;Book Successfully Deleted&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">redirect</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showItems&#39;</span><span class="p">,</span> <span class="n">category_name</span><span class="o">=</span><span class="n">category_name</span><span class="p">))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">render_template</span><span class="p">(</span><span class="s">&#39;deleteItem.html&#39;</span><span class="p">,</span> <span class="n">item</span><span class="o">=</span><span class="n">item</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-54'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-54'>#</a>
+      </div>
+      <h3><span id="return-the-catalog-json-object." href="return-the-catalog-json-object."> Return the catalog JSON object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog.json&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">catalogJSON</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-55'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-55'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    genres:  JSON object of all genres and books</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">categories</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">Category</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">asc</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">genres</span><span class="o">=</span><span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="n">serialize</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">categories</span><span class="p">])</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-56'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-56'>#</a>
+      </div>
+      <h3><span id="return-a-category-json-object." href="return-a-category-json-object."> Return a category JSON object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;.json&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">categoryJSON</span><span class="p">(</span><span class="n">category_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-57'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-57'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  the category of the book</p>
+<p><strong>Returns:</strong>
+    genre:  JSON object of the genre</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">category</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">category_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">genre</span><span class="o">=</span><span class="n">category</span><span class="o">.</span><span class="n">serialize</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-58'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-58'>#</a>
+      </div>
+      <h3><span id="return-a-book-json-object." href="return-a-book-json-object."> Return a book JSON object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;/&lt;item_name&gt;.json&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">itemJSON</span><span class="p">(</span><span class="n">category_name</span><span class="p">,</span> <span class="n">item_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-59'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-59'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  the category of the book
+    item_name:  the book</p>
+<p><strong>Returns:</strong>
+    book:  JSON object of the book</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">item</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">item_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">book</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">serialize</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-60'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-60'>#</a>
+      </div>
+      <h3><span id="return-the-users-json-object." href="return-the-users-json-object."> Return the users JSON object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/user.json&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">userJSON</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-61'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-61'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    users:  JSON object of all users</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">users</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">User</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">asc</span><span class="p">())</span>
+    <span class="k">return</span> <span class="n">jsonify</span><span class="p">(</span><span class="n">users</span><span class="o">=</span><span class="p">[</span><span class="n">u</span><span class="o">.</span><span class="n">serialize</span> <span class="k">for</span> <span class="n">u</span> <span class="ow">in</span> <span class="n">users</span><span class="p">])</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-62'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-62'>#</a>
+      </div>
+      <h3><span id="return-the-catalog-xml-object." href="return-the-catalog-xml-object."> Return the catalog XML object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog.xml&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">catalogXML</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-63'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-63'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    genres:  XML object of all genres and books</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">root</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">Element</span><span class="p">(</span><span class="s">&#39;genres&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">app</span><span class="o">.</span><span class="n">response_class</span><span class="p">(</span><span class="n">ET</span><span class="o">.</span><span class="n">tostring</span><span class="p">(</span><span class="n">getCatalogXML</span><span class="p">(</span><span class="n">root</span><span class="p">),</span>
+                                          <span class="n">encoding</span><span class="o">=</span><span class="s">&#39;us-ascii&#39;</span><span class="p">,</span>
+                                          <span class="n">method</span><span class="o">=</span><span class="s">&#39;xml&#39;</span><span class="p">),</span>
+                              <span class="n">mimetype</span><span class="o">=</span><span class="s">&#39;application/xml&#39;</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-64'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-64'>#</a>
+      </div>
+      <h3><span id="return-a-category-xml-object." href="return-a-category-xml-object."> Return a category XML object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;.xml&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">categoryXML</span><span class="p">(</span><span class="n">category_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-65'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-65'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  the category of the book</p>
+<p><strong>Returns:</strong>
+    genre:  XML object of the genre</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">root</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">Element</span><span class="p">(</span><span class="s">&#39;genre&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">app</span><span class="o">.</span><span class="n">response_class</span><span class="p">(</span><span class="n">ET</span><span class="o">.</span><span class="n">tostring</span><span class="p">(</span><span class="n">getCategoryXML</span><span class="p">(</span><span class="n">category_name</span><span class="p">,</span> <span class="n">root</span><span class="p">),</span>
+                                          <span class="n">encoding</span><span class="o">=</span><span class="s">&#39;us-ascii&#39;</span><span class="p">,</span>
+                                          <span class="n">method</span><span class="o">=</span><span class="s">&#39;xml&#39;</span><span class="p">),</span>
+                              <span class="n">mimetype</span><span class="o">=</span><span class="s">&#39;application/xml&#39;</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-66'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-66'>#</a>
+      </div>
+      <h3><span id="return-a-book-xml-object." href="return-a-book-xml-object."> Return a book XML object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/catalog/&lt;category_name&gt;/&lt;item_name&gt;.xml&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">itemXML</span><span class="p">(</span><span class="n">category_name</span><span class="p">,</span> <span class="n">item_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-67'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-67'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  the category of the book
+    item_name:  the book</p>
+<p><strong>Returns:</strong>
+    book:  XML object of the book</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">root</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">Element</span><span class="p">(</span><span class="s">&#39;book&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">app</span><span class="o">.</span><span class="n">response_class</span><span class="p">(</span><span class="n">ET</span><span class="o">.</span><span class="n">tostring</span><span class="p">(</span><span class="n">getItemXML</span><span class="p">(</span><span class="n">item_name</span><span class="p">,</span> <span class="n">root</span><span class="p">),</span>
+                                          <span class="n">encoding</span><span class="o">=</span><span class="s">&#39;us-ascii&#39;</span><span class="p">,</span>
+                                          <span class="n">method</span><span class="o">=</span><span class="s">&#39;xml&#39;</span><span class="p">),</span>
+                              <span class="n">mimetype</span><span class="o">=</span><span class="s">&#39;application/xml&#39;</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-68'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-68'>#</a>
+      </div>
+      <h3><span id="return-the-users-xml-object." href="return-the-users-xml-object."> Return the users XML object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/user.xml&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">userXML</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-69'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-69'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    users:  XML object of all users</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">root</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">Element</span><span class="p">(</span><span class="s">&#39;users&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">app</span><span class="o">.</span><span class="n">response_class</span><span class="p">(</span><span class="n">ET</span><span class="o">.</span><span class="n">tostring</span><span class="p">(</span><span class="n">getUsersXML</span><span class="p">(</span><span class="n">root</span><span class="p">),</span>
+                                          <span class="n">encoding</span><span class="o">=</span><span class="s">&#39;us-ascii&#39;</span><span class="p">,</span>
+                                          <span class="n">method</span><span class="o">=</span><span class="s">&#39;xml&#39;</span><span class="p">),</span>
+                              <span class="n">mimetype</span><span class="o">=</span><span class="s">&#39;application/xml&#39;</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-70'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-70'>#</a>
+      </div>
+      <h3><span id="return-the-atom-feed-of-recently-added/modified-books." href="return-the-atom-feed-of-recently-added/modified-books."> Return the Atom feed of recently added/modified books. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="nd">@app.route</span><span class="p">(</span><span class="s">&#39;/recent.atom&#39;</span><span class="p">)</span>
+<span class="k">def</span> <span class="nf">recentItemsAtom</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-71'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-71'>#</a>
+      </div>
+      <p><strong>Returns:</strong>
+    Recent Items:  Atom feed of recent books</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">return</span> <span class="n">getRecentItemsAtom</span><span class="p">(</span><span class="s">&#39;Recent Items&#39;</span><span class="p">,</span>
+                              <span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="p">,</span>
+                              <span class="n">request</span><span class="o">.</span><span class="n">url_root</span><span class="p">)</span><span class="o">.</span><span class="n">get_response</span><span class="p">()</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-72'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-72'>#</a>
+      </div>
+      <h3><span id="create-a-new-user." href="create-a-new-user."> Create a new user. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">createUser</span><span class="p">(</span><span class="n">login_session</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-73'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-73'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    login_session:  session variables object</p>
+<p><strong>Returns:</strong>
+    user.id:  id of the new user</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">newUser</span> <span class="o">=</span> <span class="n">User</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">],</span>
+                   <span class="n">email</span><span class="o">=</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">],</span>
+                   <span class="n">picture</span><span class="o">=</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;picture&#39;</span><span class="p">])</span>
+    <span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">newUser</span><span class="p">)</span>
+    <span class="n">session</span><span class="o">.</span><span class="n">commit</span><span class="p">()</span>
+    <span class="n">user</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">email</span><span class="o">=</span><span class="n">login_session</span><span class="p">[</span><span class="s">&#39;email&#39;</span><span class="p">])</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">user</span><span class="o">.</span><span class="n">id</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-74'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-74'>#</a>
+      </div>
+      <h3><span id="get-a-user-object." href="get-a-user-object."> Get a user object. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">getUserInfo</span><span class="p">(</span><span class="n">user_id</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-75'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-75'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    user_id:  id of the user to retrieve</p>
+<p><strong>Returns:</strong>
+    user:  the user object</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">user</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="nb">id</span><span class="o">=</span><span class="n">user_id</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">user</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-76'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-76'>#</a>
+      </div>
+      <h3><span id="get-use-id-from-email-address." href="get-use-id-from-email-address."> Get use id from email address. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">getUserID</span><span class="p">(</span><span class="n">email</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-77'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-77'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    email:  email address of the user</p>
+<p><strong>Returns:</strong>
+    user.id:  the user id</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">try</span><span class="p">:</span>
+        <span class="n">user</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">email</span><span class="o">=</span><span class="n">email</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">user</span><span class="o">.</span><span class="n">id</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">None</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-78'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-78'>#</a>
+      </div>
+      <h3><span id="return-boolean---whether-or-not-user-is-logged-in." href="return-boolean---whether-or-not-user-is-logged-in."> Return boolean - whether or not user is logged in. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">checkLogin</span><span class="p">():</span>
+    <span class="k">if</span> <span class="s">&#39;username&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">login_session</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">False</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">True</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-79'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-79'>#</a>
+      </div>
+      <h3><span id="return-xml-object-of-a-book." href="return-xml-object-of-a-book."> Return XML object of a book. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">getItemXML</span><span class="p">(</span><span class="n">item_name</span><span class="p">,</span> <span class="n">root</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-80'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-80'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    item_name:  name of the book
+    root:  the root XML node</p>
+<p><strong>Returns:</strong>
+    root:  the populated root XML node</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">item</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">item_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;name&#39;</span><span class="p">)</span>
+    <span class="n">name</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">name</span>
+    <span class="n">description</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;description&#39;</span><span class="p">)</span>
+    <span class="n">description</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="n">item</span><span class="o">.</span><span class="n">description</span>
+    <span class="nb">id</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;id&#39;</span><span class="p">)</span>
+    <span class="nb">id</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">category</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;genre&#39;</span><span class="p">)</span>
+    <span class="n">category</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">category</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="n">user</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;created_by&#39;</span><span class="p">)</span>
+    <span class="n">user</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="n">date_added</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;date_added&#39;</span><span class="p">)</span>
+    <span class="n">date_added</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">date_added</span><span class="p">)</span>
+    <span class="n">date_modified</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;date_modified&#39;</span><span class="p">)</span>
+    <span class="n">date_modified</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">date_modified</span><span class="p">)</span>
+    <span class="n">image_name</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;image_name&#39;</span><span class="p">)</span>
+    <span class="n">image_name</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">image_name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">root</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-81'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-81'>#</a>
+      </div>
+      <h3><span id="return-xml-object-of-a-category." href="return-xml-object-of-a-category."> Return XML object of a category. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">getCategoryXML</span><span class="p">(</span><span class="n">category_name</span><span class="p">,</span> <span class="n">root</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-82'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-82'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    category_name:  name of the category
+    root:  the root XML node</p>
+<p><strong>Returns:</strong>
+    root:  the populated root XML node</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">category</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">category_name</span><span class="p">)</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
+    <span class="n">items</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">filter_by</span><span class="p">(</span>
+            <span class="n">category_id</span><span class="o">=</span><span class="n">category</span><span class="o">.</span><span class="n">id</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">Item</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">asc</span><span class="p">())</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;name&#39;</span><span class="p">)</span>
+    <span class="n">name</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="n">category</span><span class="o">.</span><span class="n">name</span>
+    <span class="nb">id</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;id&#39;</span><span class="p">)</span>
+    <span class="nb">id</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">category</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+    <span class="n">user</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;created_by&#39;</span><span class="p">)</span>
+    <span class="n">user</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">category</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+    <span class="n">books</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;books&#39;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+        <span class="n">book</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">books</span><span class="p">,</span> <span class="s">&#39;book&#39;</span><span class="p">)</span>
+        <span class="n">getItemXML</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">book</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">root</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-83'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-83'>#</a>
+      </div>
+      <h3><span id="return-xml-object-of-the-catalog." href="return-xml-object-of-the-catalog."> Return XML object of the catalog. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">getCatalogXML</span><span class="p">(</span><span class="n">root</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-84'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-84'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    root:  the root XML node</p>
+<p><strong>Returns:</strong>
+    root:  the populated root XML node</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">categories</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">Category</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">asc</span><span class="p">())</span>
+    <span class="k">for</span> <span class="n">category</span> <span class="ow">in</span> <span class="n">categories</span><span class="p">:</span>
+        <span class="n">genre</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;genre&#39;</span><span class="p">)</span>
+        <span class="n">getCategoryXML</span><span class="p">(</span><span class="n">category</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">genre</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">root</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-85'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-85'>#</a>
+      </div>
+      <h3><span id="return-xml-object-of-all-users." href="return-xml-object-of-all-users."> Return XML object of all users. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">getUsersXML</span><span class="p">(</span><span class="n">root</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-86'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-86'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    root:  the root XML node</p>
+<p><strong>Returns:</strong>
+    root:  the populated root XML node</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">users</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">User</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">User</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">asc</span><span class="p">())</span>
+    <span class="k">for</span> <span class="n">user</span> <span class="ow">in</span> <span class="n">users</span><span class="p">:</span>
+        <span class="n">userNode</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="s">&#39;user&#39;</span><span class="p">)</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">userNode</span><span class="p">,</span> <span class="s">&#39;name&#39;</span><span class="p">)</span>
+        <span class="n">name</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="n">user</span><span class="o">.</span><span class="n">name</span>
+        <span class="nb">id</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">userNode</span><span class="p">,</span> <span class="s">&#39;id&#39;</span><span class="p">)</span>
+        <span class="nb">id</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">user</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
+        <span class="n">email</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">userNode</span><span class="p">,</span> <span class="s">&#39;email&#39;</span><span class="p">)</span>
+        <span class="n">email</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="n">user</span><span class="o">.</span><span class="n">email</span>
+        <span class="n">picture</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">SubElement</span><span class="p">(</span><span class="n">userNode</span><span class="p">,</span> <span class="s">&#39;picture&#39;</span><span class="p">)</span>
+        <span class="n">picture</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="n">user</span><span class="o">.</span><span class="n">picture</span>
+    <span class="k">return</span> <span class="n">root</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-87'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-87'>#</a>
+      </div>
+      <h3><span id="return-atoms-feed-object-of-recently-added/modified-books." href="return-atoms-feed-object-of-recently-added/modified-books."> Return Atoms feed object of recently added/modified books. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">getRecentItemsAtom</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">feed_url</span><span class="p">,</span> <span class="n">url</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-88'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-88'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    name:  the name of the feed
+    feed_url:  URL that dispalys the Atom feed
+    url:  root URL</p>
+<p><strong>Returns:</strong>
+    feed:  the populated Atom feed</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">feed</span> <span class="o">=</span> <span class="n">AtomFeed</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">feed_url</span><span class="o">=</span><span class="n">feed_url</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="n">url</span><span class="p">)</span>
+    <span class="n">items</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Item</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">Item</span><span class="o">.</span><span class="n">date_modified</span><span class="o">.</span><span class="n">desc</span><span class="p">())</span><span class="o">.</span><span class="n">limit</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+        <span class="n">feed</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">item</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+                 <span class="n">content_type</span><span class="o">=</span><span class="s">&#39;html&#39;</span><span class="p">,</span>
+                 <span class="n">user</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">user</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                 <span class="n">url</span><span class="o">=</span><span class="n">make_external</span><span class="p">(</span><span class="n">url_for</span><span class="p">(</span><span class="s">&#39;showItem&#39;</span><span class="p">,</span>
+                                           <span class="n">category_name</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">category</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                                           <span class="n">item_name</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">name</span><span class="p">)),</span>
+                 <span class="n">updated</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">date_modified</span><span class="p">,</span>
+                 <span class="n">published</span><span class="o">=</span><span class="n">item</span><span class="o">.</span><span class="n">date_added</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">feed</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-89'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-89'>#</a>
+      </div>
+      <h3><span id="check-to-see-if-file-is-of-an-allowed-type-and-format." href="check-to-see-if-file-is-of-an-allowed-type-and-format."> Check to see if file is of an allowed type and format. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">allowed_file</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-90'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-90'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    filename:  the filename to check</p>
+<p><strong>Returns:</strong>  boolean - is the filename and allowed type and correct format?</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">return</span> <span class="s">&#39;.&#39;</span> <span class="ow">in</span> <span class="n">filename</span> <span class="ow">and</span> \
+        <span class="n">filename</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">in</span> <span class="n">ALLOWED_EXTENSIONS</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-91'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-91'>#</a>
+      </div>
+      <h3><span id="get-the-correct-path-to-a-book-image." href="get-the-correct-path-to-a-book-image."> Get the correct path to a book image. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">getImagePath</span><span class="p">(</span><span class="n">image_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-92'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-92'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    image_name:  the name of the book</p>
+<p><strong>Returns:</strong>  the relative path of the image</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">UPLOAD_FOLDER</span><span class="p">,</span> <span class="n">image_name</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-93'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-93'>#</a>
+      </div>
+      <h3><span id="create-the-list-of-categories-and-add-to-session-variables." href="create-the-list-of-categories-and-add-to-session-variables."> Create the list of categories and add to session variables. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">setCategories</span><span class="p">():</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-94'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-94'>#</a>
+      </div>
+      <p><strong>Session Variables:</strong>
+    login_session['categories']:  list of category names
+    login_session['cat_num']:  number of categories</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">categories</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">order_by</span><span class="p">(</span><span class="n">Category</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">asc</span><span class="p">())</span>
+    <span class="n">cat_num</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">Category</span><span class="p">)</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;categories&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="n">serializePartial</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">categories</span><span class="p">]</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;cat_num&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">cat_num</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-95'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-95'>#</a>
+      </div>
+      <h3><span id="add-the-selected-theme-css-url-to-the-session." href="add-the-selected-theme-css-url-to-the-session."> Add the selected theme css URL to the session. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">setTheme</span><span class="p">(</span><span class="n">theme_name</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-96'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-96'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    theme_name:  the name of the selected theme</p>
+<p><strong>Session Variables:</strong>
+    login_session['theme_url']:  URL of the selected Bootstrap css theme</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="n">theme_filename</span> <span class="o">=</span> <span class="s">&#39;css/bootstrap_{}.min.css&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">theme_name</span><span class="p">)</span>
+    <span class="n">login_session</span><span class="p">[</span><span class="s">&#39;theme_url&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">url_for</span><span class="p">(</span><span class="s">&#39;static&#39;</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="n">theme_filename</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-97'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-97'>#</a>
+      </div>
+      <h3><span id="set-the-categories-and-theme-url-session-variables-if-not-set." href="set-the-categories-and-theme-url-session-variables-if-not-set."> Set the categories and theme URL session variables if not set. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">setDefaults</span><span class="p">():</span>
+    <span class="k">if</span> <span class="s">&#39;categories&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">login_session</span> <span class="ow">or</span> <span class="s">&#39;cat_num&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">login_session</span><span class="p">:</span>
+        <span class="n">setCategories</span><span class="p">()</span>
+    <span class="k">if</span> <span class="s">&#39;theme_url&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">login_session</span><span class="p">:</span>
+        <span class="n">setTheme</span><span class="p">(</span><span class="n">DEFAULT_THEME</span><span class="p">)</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-98'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-98'>#</a>
+      </div>
+      <h3><span id="create-a-complete-url-from-root-url-and-relateive-path." href="create-a-complete-url-from-root-url-and-relateive-path."> Create a complete URL from root URL and relateive path. </span></h3>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre><span class="k">def</span> <span class="nf">make_external</span><span class="p">(</span><span class="n">url</span><span class="p">):</span></pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+  <div class='section' id='section-99'>
+    <div class='docs'>
+      <div class='octowrap'>
+        <a class='octothorpe' href='#section-99'>#</a>
+      </div>
+      <p><strong>Args:</strong>
+    url:  relative URL</p>
+<p><strong>Returns:</strong>  the complete URL</p>
+    </div>
+    <div class='code'>
+      <div class="highlight"><pre>    <span class="k">return</span> <span class="n">urljoin</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">url_root</span><span class="p">,</span> <span class="n">url</span><span class="p">)</span>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">secret_key</span> <span class="o">=</span> <span class="s">&#39;super_secret_key&#39;</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">debug</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="n">app</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">host</span><span class="o">=</span><span class="s">&#39;0.0.0.0&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">8000</span><span class="p">)</span>
+
+</pre></div>
+    </div>
+  </div>
+  <div class='clearall'></div>
+</div>
+</body>

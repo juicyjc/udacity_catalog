@@ -1,0 +1,58 @@
+{% extends "layout.html" %}
+{% block title %}{{ category_name }} Items{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-4 well">
+            <div class="content-header">
+                <h2>Genres</h2>
+            </div>
+            {% if session.cat_num != 0 %}
+                {% for c in session.categories %}
+                <div class="">
+                    <a class="" href='{{ url_for('showItems', category_name=c.name) }}'>{{ c.name }}</a>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="">There are no genres.</div>
+            {% endif %}
+            {% if is_creator %}
+                <div class="padding-top-med">
+                    <a class="btn btn-primary btn-sm" href='{{ url_for('editCategory', category_name=category_name) }}'>Edit Genre</a>
+                    &nbsp;
+                    <a class="btn btn-warning btn-sm" href='{{ url_for('deleteCategory', category_name=category_name) }}'>Delete Genre</a>
+                </div>
+            {% endif %}
+        </div>
+        <div class="col-md-1"></div>
+        <div class="col-md-7 well">
+            <div class="content-header">
+                <h2>{{ category_name }} ({{ item_num }} {{ 'books' if item_num != 1 else 'book' }})</h2>
+            </div>
+            {% if item_num != 0 %}
+                {% for i in items %}
+                <div class="">
+                    <a class="" href='{{ url_for('showItem', category_name=i.category.name, item_name=i.name) }}'>{{ i.name }}</a>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="">There are no books in {{ category_name }}.</div>
+            {% endif %}
+            {% if logged_in %}
+                <div class="padding-top-med">
+                    <a class="btn btn-primary btn-sm" href='{{ url_for('newItem', category_name=category_name) }}'>New Book</a>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-info btn-sm dropdown-toggle" data-toggle="dropdown" aria-expanded="false">
+                            APIs <span class="caret"></span>
+                        </button>
+                        <ul class="dropdown-menu" role="menu">
+                            <li><a href="{{ url_for('categoryJSON', category_name=category_name) }}">JSON</a></li>
+                            <li><a href="{{ url_for('categoryXML', category_name=category_name) }}">XML</a></li>
+                        </ul>
+                    </div>
+                </div>
+             {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

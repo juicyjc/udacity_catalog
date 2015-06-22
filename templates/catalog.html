@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block title %}Books{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-3 well">
+            <div class="content-header">
+                <h2>Genres</h2>
+            </div>
+            {% if session.cat_num != 0 %}
+                {% for c in session.categories %}
+                <div class="">
+                    <a class="" href='{{ url_for('showItems', category_name=c.name) }}'>{{ c.name }}</a>
+                </div>
+                {% endfor %}
+            {% else %}
+                 <div class="">There are no genres.</div>
+            {% endif %}
+            {% if logged_in %}
+                <div class="padding-top-med">
+                    <a class="btn btn-primary btn-sm" href='{{ url_for('newCategory') }}'>New Genre</a>
+                </div>
+            {% endif %}
+        </div>
+        <div class="col-md-1"></div>
+        <div class="col-md-8 well">
+            <div class="content-header">
+                <h2>Latest Books</h2>
+            </div>
+            {% if item_num != 0 %}
+                {% for i in items %}
+                <div class="">
+                    <a class="" href='{{ url_for('showItem', category_name=i.category.name, item_name=i.name) }}'>{{ i.name }}</a> ({{ i.category.name }})
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="">There are no books.</div>
+            {% endif %}
+            {% if logged_in %}
+                <div class="padding-top-med">
+                    <a class="btn btn-primary btn-sm" href='{{ url_for('newItem') }}'>New Book</a>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
