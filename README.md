@@ -17,29 +17,29 @@ To run this application:
 8. Enjoy!
 
 ## Python and Module Versions
-Python 2.7.6
-Flask - 0.10.1
-Flask-SeaSurf - 0.2.0
-SQLAlchemy - 0.8.4
++ Python 2.7.6
++ Flask - 0.10.1
++ Flask-SeaSurf - 0.2.0
++ SQLAlchemy - 0.8.4
 
 ## API Endpoints - JSON, XML, and Atom
-Users
-JSON - http://localhost:8000/catalog/users.json
-XML - http://localhost:8000/users.xml
+#### Users
++ JSON - http://localhost:8000/catalog/users.json
++ XML - http://localhost:8000/users.xml
 
-Catalog
-JSON - http://localhost:8000/catalog.json
-XML - http://localhost:8000/catalog.xml
+#### Catalog
++ JSON - http://localhost:8000/catalog.json
++ XML - http://localhost:8000/catalog.xml
 
-Genre
-JSON - http://localhost:8000/catalog/<int:category_id>/category.json
-XML - http://localhost:8000/catalog/<int:category_id>/category.xml
+#### Genre
++ JSON - http://localhost:8000/catalog/<int:category_id>/category.json
++ XML - http://localhost:8000/catalog/<int:category_id>/category.xml
 
-Book
-JSON - http://localhost:8000/catalog/<int:category_id>/<int:item_id>/item.json
-XML - http://localhost:8000/catalog/<int:category_id>/<int:item_id>/item.xml
+#### Book
++ JSON - http://localhost:8000/catalog/<int:category_id>/<int:item_id>/item.json
++ XML - http://localhost:8000/catalog/<int:category_id>/<int:item_id>/item.xml
 
-Atom - Recent Items Feed
-http://localhost:8000/recent.atom
+#### Atom - Recent Items Feed
++ http://localhost:8000/recent.atom
 
 
