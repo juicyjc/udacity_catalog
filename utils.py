@@ -201,6 +201,7 @@ def createGenre(session, login_session, name, user_id):
     except:
         session.rollback()
         flash("Genre Already Exists", 'error')
+        return None
 
 
 # === Edit a category. ===

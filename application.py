@@ -372,7 +372,10 @@ def newCategory():
         category_id = utils.createGenre(session, login_session,
                                         request.form['name'],
                                         login_session['user_id'])
-        return redirect(url_for('showItems', category_id=category_id))
+        if category_id is None:
+            return redirect(url_for('showCatalog'))
+        else:
+            return redirect(url_for('showItems', category_id=category_id))
     else:
         return render_template('newCategory.html')
 
