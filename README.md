@@ -32,12 +32,12 @@ To run this application:
 + XML - http://localhost:8000/catalog.xml
 
 #### Genre
-+ JSON - http://localhost:8000/catalog/<int:category_id>/category.json
-+ XML - http://localhost:8000/catalog/<int:category_id>/category.xml
++ JSON - http://localhost:8000/catalog/category_id/category.json
++ XML - http://localhost:8000/catalog/category_id/category.xml
 
 #### Book
-+ JSON - http://localhost:8000/catalog/<int:category_id>/<int:item_id>/item.json
-+ XML - http://localhost:8000/catalog/<int:category_id>/<int:item_id>/item.xml
++ JSON - http://localhost:8000/catalog/category_id/item_id/item.json
++ XML - http://localhost:8000/catalog/category_id/item_id/item.xml
 
 #### Atom - Recent Items Feed
 + http://localhost:8000/recent.atom
