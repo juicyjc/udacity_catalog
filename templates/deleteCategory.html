@@ -6,11 +6,12 @@
         <div class="content-header">
             <h3>Are you sure you want to delete {{ category.name }}?</h3>
         </div>
-        <form action="{{ url_for('deleteCategory', category_name=category.name) }}" method='post' class="form-horizontal" role="form">
+        <form action="{{ url_for('deleteCategory', category_id=category.id) }}" method='post' class="form-horizontal" role="form">
             <div class="">
                 <input type='submit' value='Delete' class="btn btn-danger btn-sm">
-                <a class="btn btn-default btn-sm" href='{{ url_for('showItems', category_name=category.name) }}'>Cancel</a>
+                <a class="btn btn-default btn-sm" href='{{ url_for('showItems', category_id=category.id) }}'>Cancel</a>
             </div>
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         </form>
     </div>
 </div>

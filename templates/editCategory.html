@@ -6,7 +6,7 @@
         <div class="content-header">
             <h2>Edit Genre</h2>
         </div>
-        <form action="{{ url_for('editCategory', category_name=category.name) }}" method='post' class="form-horizontal" role="form">
+        <form action="{{ url_for('editCategory', category_id=category.id) }}" method='post' class="form-horizontal" role="form">
             <div class="form-group">
                 <label class="control-label col-sm-2" for="name">Name:</label>
                 <input type ='text' size='30' name='name' value='{{ category.name }}' class="col-sm-8">
@@ -14,8 +14,9 @@
             <div class="form-group">
                 <label class="control-label col-sm-2"></label>
                 <input type='submit' value='Update' class="btn btn-primary btn-sm">
-                <a class="btn btn-default btn-sm" href='{{ url_for('showItems', category_name=category.name) }}'>Cancel</a>
+                <a class="btn btn-default btn-sm" href='{{ url_for('showItems', category_id=category.id) }}'>Cancel</a>
             </div>
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         </form>
     </div>
 </div>

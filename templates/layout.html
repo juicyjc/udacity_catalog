@@ -30,7 +30,7 @@
                         <ul class="dropdown-menu" aria-labelledby="categories">
                             {% if session.cat_num != 0 %}
                                 {% for c in session.categories %}
-                                    <li><a href="{{ url_for('showItems', category_name=c.name) }}">{{ c.name }}</a></li>
+                                    <li><a href="{{ url_for('showItems', category_id=c.id) }}">{{ c.name }}</a></li>
                                 {% endfor %}
                             {% endif %}
                         </ul>
@@ -61,10 +61,10 @@
                     <li class="dropdown">
                         <a class="dropdown-toggle" data-toggle="dropdown" href="#" id="apis">APIs <span class="caret"></span></a>
                         <ul class="dropdown-menu" aria-labelledby="apis">
-                            <li><a href="{{ url_for('userJSON') }}">JSON Users</a></li>
+                            <li><a href="{{ url_for('usersJSON') }}">JSON Users</a></li>
                             <li><a href="{{ url_for('catalogJSON') }}">JSON Catalog</a></li>
                             <li class="divider"></li>
-                            <li><a href="{{ url_for('userXML') }}">XML Users</a></li>
+                            <li><a href="{{ url_for('usersXML') }}">XML Users</a></li>
                             <li><a href="{{ url_for('catalogXML') }}">XML Catalog</a></li>
                             <li class="divider"></li>
                             <li><a href="{{ url_for('recentItemsAtom') }}">Atom - Recent Items</a></li>

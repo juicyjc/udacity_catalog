@@ -10,7 +10,7 @@
             {% if session.cat_num != 0 %}
                 {% for c in session.categories %}
                 <div class="">
-                    <a class="" href='{{ url_for('showItems', category_name=c.name) }}'>{{ c.name }}</a>
+                    <a class="" href='{{ url_for('showItems', category_id=c.id) }}'>{{ c.name }}</a>
                 </div>
                 {% endfor %}
             {% else %}
@@ -30,7 +30,7 @@
             {% if item_num != 0 %}
                 {% for i in items %}
                 <div class="">
-                    <a class="" href='{{ url_for('showItem', category_name=i.category.name, item_name=i.name) }}'>{{ i.name }}</a> ({{ i.category.name }})
+                    <a class="" href='{{ url_for('showItem', category_id=i.category.id, item_id=i.id) }}'>{{ i.name }}</a> ({{ i.category.name }})
                 </div>
                 {% endfor %}
             {% else %}

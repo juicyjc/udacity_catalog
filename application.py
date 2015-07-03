@@ -1,39 +1,51 @@
 #
-# appliction.py - Starts the webserver and contains the code for the
-#                 Catalog App
+# appliction.py - Webserver and code for the Catalog App.
 #
 
-import os
 import random
 import string
 import httplib2
 import json
 import requests
-from flask import Flask, render_template, request, redirect
-from flask import url_for, flash, jsonify, make_response
+import utils
+
+from flask import Flask
+from flask import render_template
+from flask import request
+from flask import redirect
+from flask import url_for
+from flask import flash
+from flask import jsonify
+from flask import make_response
 from flask import session as login_session
+
+from flask.ext.seasurf import SeaSurf
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.client import FlowExchangeError
 from oauth2client.client import AccessTokenCredentials
-from database_setup import Category, Base, Item, User
-from werkzeug import secure_filename
-from werkzeug.contrib.atom import AtomFeed
-from urlparse import urljoin
+
+from database_setup import Category
+from database_setup import Base
+from database_setup import Item
+from database_setup import User
+
 from xml.etree import ElementTree as ET
 
-app = Flask(__name__)
+from functools import wraps
 
-CLIENT_ID = json.loads(open('client_secrets.json',
-                            'r').read())['web']['client_id']
+
+app = Flask(__name__)
+csrf = SeaSurf(app)
+
+CLIENT_ID = json.loads(
+    open('client_secrets.json', 'r').read())['web']['client_id']
 APPLICATION_NAME = "Catalog Application"
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                             "static",
-                             "img",)
+
 READ_FOLDER = '/static/img/'
-ALLOWED_EXTENSIONS = set(['png', 'jpg', 'jpeg', 'gif'])
-DEFAULT_THEME = 'readable'
 
 engine = create_engine('sqlite:///catalog.db')
 Base.metadata.bind = engine
@@ -42,13 +54,24 @@ DBSession = sessionmaker(bind=engine)
 session = DBSession()
 
 
+# === Login decorator. ===
+def loginRequired(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' not in login_session:
+            return redirect(url_for('showLogin', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 # === Create anti-forgery state token. ===
+@csrf.exempt
 @app.route('/login')
 def showLogin():
     """
-    **Returns:**
-        Template:  login.html
-            STATE:  the state token
+    ####Returns####
+        + Template:  login.html
+        + STATE:  the state token
     """
     state = ''.join(random.choice(string.ascii_uppercase + string.digits)
                     for x in xrange(32))
@@ -57,6 +80,7 @@ def showLogin():
 
 
 # ===  Login with Facebook. ===
+@csrf.exempt
 @app.route('/fbconnect', methods=['POST'])
 def fbconnect():
     if request.args.get('state') != login_session['state']:
@@ -76,6 +100,7 @@ def fbconnect():
     result = h.request(url, 'GET')[1]
 
     # Use token to get user info from API
+    userinfo_url = "https://graph.facebook.com/v2.2/me"
     # strip expire tag from access token
     token = result.split("&")[0]
 
@@ -95,10 +120,18 @@ def fbconnect():
     stored_token = token.split("=")[1]
     login_session['access_token'] = stored_token
 
+    # Get user picture
+    url = 'https://graph.facebook.com/v2.2/me/picture?%s&redirect=0&height=200&width=200' % token
+    h = httplib2.Http()
+    result = h.request(url, 'GET')[1]
+    data = json.loads(result)
+
+    login_session['picture'] = data["data"]["url"]
+
     # see if user exists
-    user_id = getUserID(login_session['email'])
+    user_id = utils.getUserID(session, login_session['email'])
     if not user_id:
-        user_id = createUser(login_session)
+        user_id = utils.createUser(session, login_session)
     login_session['user_id'] = user_id
 
     flash("Now logged in as %s." % login_session['username'])
@@ -106,6 +139,7 @@ def fbconnect():
 
 
 # === Disconnect from Facebook. ===
+@csrf.exempt
 @app.route('/fbdisconnect')
 def fbdisconnect():
     facebook_id = login_session['facebook_id']
@@ -119,6 +153,7 @@ def fbdisconnect():
 
 
 # === Login with Google. ===
+@csrf.exempt
 @app.route('/gconnect', methods=['POST'])
 def gconnect():
     # Validate state token
@@ -186,12 +221,14 @@ def gconnect():
     data = answer.json()
     # set the session variables
     login_session['username'] = data['name']
+    login_session['picture'] = data['picture']
     login_session['email'] = data['email']
     login_session['provider'] = 'google'
 
-    user_id = getUserID(login_session['email'])
+    # see if user exists, if it doesn't make a new one
+    user_id = utils.getUserID(session, login_session['email'])
     if not user_id:
-        user_id = createUser(login_session)
+        user_id = utils.createUser(session, login_session)
     login_session['user_id'] = user_id
 
     flash("You are now logged in as %s." % login_session['username'])
@@ -199,6 +236,7 @@ def gconnect():
 
 
 # === Disconnect from Google. ===
+@csrf.exempt
 @app.route('/gdisconnect')
 def gdisconnect():
     """
@@ -226,11 +264,12 @@ def gdisconnect():
 
 
 # === Disconnect based on provider. ===
+@csrf.exempt
 @app.route('/disconnect')
 def disconnect():
     """
-    **Returns:**
-        redirect:  showCatalog
+    ####Returns####
+        + redirect:  showCatalog
     """
     if 'provider' in login_session:
         if login_session['provider'] == 'google':
@@ -242,6 +281,7 @@ def disconnect():
             del login_session['facebook_id']
         del login_session['username']
         del login_session['email']
+        del login_session['picture']
         del login_session['user_id']
         del login_session['provider']
         flash("You have successfully been logged out.")
@@ -255,13 +295,13 @@ def disconnect():
 @app.route('/theme/<theme_name>')
 def theme(theme_name):
     """
-    **Args:**
-        theme_name:  the name of the theme selected by the user
+    ####Args####
+        + theme_name:  the name of the theme selected by the user
 
-    **Returns:**
-        redirect:  showCatalog
+    ####Returns####
+        + redirect:  showCatalog
     """
-    setTheme(theme_name)
+    utils.setTheme(login_session, theme_name)
     return redirect(url_for('showCatalog'))
 
 
@@ -270,13 +310,13 @@ def theme(theme_name):
 @app.route('/catalog')
 def showCatalog():
     """
-    **Returns:**
-        template:  catalog.html
-            items:  a list of recent books
-            item_num:  the nuber of books
-            logged_in:  boolean
+    ####Returns####
+        + template:  catalog.html
+        + items:  a list of recent books
+        + item_num:  the nuber of books
+        + logged_in:  boolean
     """
-    setDefaults()
+    utils.setDefaults(session, login_session)
     items = session.query(Item).order_by(Item.date_modified.desc()).limit(10)
     item_num = session.query(Item).order_by(
                 Item.date_modified.desc()).limit(10).count()
@@ -288,269 +328,213 @@ def showCatalog():
 
 
 # === Display the items in the selected category. ===
-@app.route('/catalog/<category_name>/items')
-def showItems(category_name):
+@app.route('/catalog/<int:category_id>/items')
+def showItems(category_id):
     """
-    **Args:**
-        category_name:  the category that we're displaying
+    ####Args####
+        + category_name:  the category that we're displaying
 
-    **Returns:**
-        template:  items.html
-            items:  the books in this category
-            item_num:  the number of books
-            category_name:  the selected category
-            logged_in:  boolean
-            is_creator:  boolean is the logged in user the creator of this
-                         category?
+    ####Returns####
+        + template:  items.html
+        + items:  the books in this category
+        + item_num:  the number of books
+        + category_name:  the selected category
+        + category_id:  the id of the selected category
+        + logged_in:  boolean
+        + is_creator:  boolean
     """
-    category = session.query(Category).filter_by(name=category_name).one()
+    category = session.query(Category).filter_by(id=category_id).one()
     items = session.query(Item).filter_by(
               category_id=category.id).order_by(Item.name.asc())
     item_num = session.query(Item).filter_by(category_id=category.id).count()
-    creator = getUserInfo(category.user_id)
-    logged_in = False
-    is_creator = False
-    if 'username' in login_session:
-        logged_in = True
-        if creator.id == login_session['user_id']:
-            is_creator = True
+    creator_info = utils.getCreatorInfo(
+        session, login_session, category.user_id)
     return render_template('items.html', items=items, item_num=item_num,
-                           category_name=category_name, logged_in=logged_in,
-                           is_creator=is_creator)
+                           category_name=category.name,
+                           category_id=category.id,
+                           logged_in=creator_info['logged_in'],
+                           is_creator=creator_info['is_creator'])
 
 
 # === Create a new Category. ===
 @app.route('/catalog/category/new', methods=['GET', 'POST'])
+@loginRequired
 def newCategory():
     """
-    **Returns:**
-        GET:
-            template:  newCategory.html
-        POST:
-            redirect:  showCatalog
+    ####Returns####
+    #####GET#####
+        + template:  newCategory.html
+    #####POST#####
+        + redirect:  showItems
+        + category_id - the id of the newly created category
     """
-    if not checkLogin():
-        return redirect(url_for('showLogin'))
     if request.method == 'POST':
-        newCategory = Category(name=request.form['name'],
-                               user_id=login_session['user_id'])
-        session.add(newCategory)
-        session.commit()
-        setCategories()
-        flash("New Genre Created")
-        return redirect(url_for('showCatalog'))
+        category_id = utils.createGenre(session, login_session,
+                                        request.form['name'],
+                                        login_session['user_id'])
+        return redirect(url_for('showItems', category_id=category_id))
     else:
         return render_template('newCategory.html')
 
 
 # === Edit a Category. ===
-@app.route('/catalog/<category_name>/edit', methods=['GET', 'POST'])
-def editCategory(category_name):
+@app.route('/catalog/<int:category_id>/edit', methods=['GET', 'POST'])
+@loginRequired
+def editCategory(category_id):
     """
-    **Args:**
-        category_name:  the category that we're editing
+    ####Args####
+        + category_id:  the id of the category that we're editing
 
-    **Returns:**
-        GET:
-            template:  editCategory.html
-                category:  the category object
-        POST:
-            redirect:  showItems
-                category_name:  the category we're editing
+    ####Returns####
+    #####GET#####
+        + template:  editCategory.html
+        + category - the category object
+    #####POST#####
+        + redirect:  showItems
+        + category_id - the id of the category we're editing
     """
-    if not checkLogin():
-        return redirect(url_for('showLogin'))
-    category = session.query(Category).filter_by(name=category_name).one()
-    # If not the author of this category, redirect to home page
-    if category.user_id != login_session['user_id']:
-        flash("You can only edit your own genres.", 'error')
+    category = session.query(Category).filter_by(id=category_id).one()
+    if not utils.creatorCheck(login_session, category.user_id,
+                              'genres', 'edit'):
         return redirect('/')
     if request.method == 'POST':
-        if request.form['name']:
-            category.name = request.form['name']
-        session.add(category)
-        session.commit()
-        setCategories()
-        flash("Genre Successfully Edited")
-        return redirect(url_for('showItems', category_name=category.name))
+        utils.updateGenre(session, login_session,
+                          category, request.form['name'])
+        return redirect(url_for('showItems', category_id=category.id))
     else:
         return render_template('editCategory.html', category=category)
 
 
 # === Delete a Category. ===
-@app.route('/catalog/<category_name>/delete', methods=['GET', 'POST'])
-def deleteCategory(category_name):
+@app.route('/catalog/<int:category_id>/delete', methods=['GET', 'POST'])
+@loginRequired
+def deleteCategory(category_id):
     """
-    **Args:**
-        category_name:  the category that we're deleting
+    ####Args####
+    + category_id:  the id of the category that we're deleting
 
-    **Returns:**
-        GET:
-            template:  deleteCategory.html
-                category:  the category object
-        POST:
-            redirect:  showCatalog
+    ####Returns####
+    #####GET#####
+        + template:  deleteCategory.html
+        + category - the category object
+    #####POST#####
+        + redirect:  showCatalog
     """
-    if not checkLogin():
-        return redirect(url_for('showLogin'))
-    category = session.query(Category).filter_by(name=category_name).one()
-    # If not the author of this category, redirect to home page
-    if category.user_id != login_session['user_id']:
-        flash("You can only delete your own genres.", 'error')
+    category = session.query(Category).filter_by(id=category_id).one()
+    if not utils.creatorCheck(login_session, category.user_id,
+                              'genres', 'delete'):
         return redirect('/')
     if request.method == 'POST':
-        session.delete(category)
-        session.commit()
-        setCategories()
-        flash("Genre Successfully Deleted")
+        utils.deleteGenre(session, login_session, category)
         return redirect(url_for('showCatalog'))
     else:
         return render_template('deleteCategory.html', category=category)
 
 
 # === Display a book. ===
-@app.route('/catalog/<category_name>/<item_name>')
-def showItem(category_name, item_name):
+@app.route('/catalog/<int:category_id>/<int:item_id>')
+def showItem(category_id, item_id):
     """
-    **Args:**
-        category_name:  the category that we're displaying
-        item_name:  the item that we're displaying
+    ####Args####
+        + category_id:  the id of the category that we're displaying
+        + item_id:  the id of the item that we're displaying
 
-    **Returns:**
-        template:  item.html
-              item:  the item object
-              image_path:  path to the item's image
-              logged_in:  boolean
-              is_creator:  boolean
+    ####Returns####
+        + template:  item.html
+        + item - the item object
+        + image_path - path to the item's image
+        + logged_in - boolean
+        + is_creator - boolean
     """
-    item = session.query(Item).filter_by(name=item_name).one()
+    item = session.query(Item).filter_by(id=item_id).one()
     image_path = None
     if item.image_name is not None:
         image_path = READ_FOLDER + item.image_name
-    creator = getUserInfo(item.user_id)
-    logged_in = False
-    is_creator = False
-    if 'username' in login_session:
-        logged_in = True
-        if creator.id == login_session['user_id']:
-            is_creator = True
+    creator_info = utils.getCreatorInfo(session, login_session, item.user_id)
     return render_template('item.html', item=item, image_path=image_path,
-                           logged_in=logged_in, is_creator=is_creator)
+                           logged_in=creator_info['logged_in'],
+                           is_creator=creator_info['is_creator'])
 
 
 # === Create a book. ===
 @app.route('/catalog/item/new', methods=['GET', 'POST'])
+@loginRequired
 def newItem():
     """
-    **Returns:**
-        GET:
-            template:  newItem.html
-                category_name:  the category of the new book
-        POST:
-            redirect:  showCatalog
+    ####Returns####
+    #####GET#####
+        + template:  newItem.html
+        + category_name - the name of the category of the new book
+    #####POST#####
+        + redirect:  showItems
+        + category_id - the category id of the new book
     """
-    if not checkLogin():
-        return redirect(url_for('showLogin'))
     if request.method == 'POST':
-        file = request.files['image']
-        image_name = None
-        if file and allowed_file(file.filename):
-            image_name = secure_filename(file.filename)
-            file.save(getImagePath(image_name))
-        newItem = Item(category_id=request.form['category_id'],
-                       name=request.form['name'],
-                       description=request.form['description'],
-                       image_name=image_name,
-                       user_id=login_session['user_id'])
-        session.add(newItem)
-        session.commit()
-        flash("New Book Created")
-        return redirect(url_for('showCatalog'))
+        item_id = utils.createBook(session, request.files['image'],
+                                   request.form['category_id'],
+                                   request.form['name'],
+                                   request.form['description'],
+                                   login_session['user_id'])
+        return redirect(url_for('showItems', category_id=request.form['category_id']))
     else:
         category_name = request.args.get('category_name')
         return render_template('newItem.html', category_name=category_name)
 
 
 # === Edit a book. ===
-@app.route('/catalog/<category_name>/<item_name>/edit', methods=['GET', 'POST'])
-def editItem(category_name, item_name):
+@app.route('/catalog/<int:category_id>/<int:item_id>/edit', methods=['GET', 'POST'])
+@loginRequired
+def editItem(category_id, item_id):
     """
-    **Args:**
-          category_name:  the category of the book that we're editing
-          item_name:  the item that we're editing
+    ####Args####
+        + category_id:  the id of the category of the book that we're editing
+        + item_id:  the id of the item that we're editing
 
-    **Returns:**
-        GET:
-            template:  editItem.html
-                item:  the item object
-      POST:
-            redirect:  showItems
-                category_name:  the category of the book
+    ####Returns####
+    #####GET#####
+        + template:  editItem.html
+        + item - the item object
+    #####POST#####
+        + redirect:  showItems
+        + category_id - the id of the category of the book
     """
-    if not checkLogin():
-        return redirect(url_for('showLogin'))
-    item = session.query(Item).filter_by(name=item_name).one()
-    # If not the author of this item, redirect to home page
-    if item.user_id != login_session['user_id']:
-        flash("You can only edit your own books.", 'error')
+    item = session.query(Item).filter_by(id=item_id).one()
+    if not utils.creatorCheck(login_session, item.user_id, 'books', 'edit'):
         return redirect('/')
     if request.method == 'POST':
-        if request.form['name']:
-            item.name = request.form['name']
-        if request.form['description']:
-            item.description = request.form['description']
-        if request.form['category_id']:
-            item.category_id = request.form['category_id']
-        file = request.files['image']
-        if file and allowed_file(file.filename):
-            new_image_name = secure_filename(file.filename)
-            # If the new image name is not the same as the old
-            if item.image_name != new_image_name:
-                # Delete the old image
-                if item.image_name is not None:
-                    os.remove(getImagePath(item.image_name))
-                # Set the new image name
-                item.image_name = new_image_name
-                # Save the new image
-                file.save(getImagePath(item.image_name))
-        session.add(item)
-        session.commit()
-        flash("Book Successfully Edited")
-        return redirect(url_for('showItems', category_name=category_name))
+        utils.updateBook(session, item,
+                         request.files['image'],
+                         request.form['category_id'],
+                         request.form['name'],
+                         request.form['description'])
+        return redirect(url_for('showItems', category_id=request.form['category_id']))
     else:
         return render_template('editItem.html', item=item)
 
 
 # === Delete a book. ===
-@app.route('/catalog/<category_name>/<item_name>/delete', methods=['GET', 'POST'])
-def deleteItem(category_name, item_name):
+@app.route('/catalog/<int:category_id>/<int:item_id>/delete', methods=['GET', 'POST'])
+@loginRequired
+def deleteItem(category_id, item_id):
     """
-    **Args:**
-          category_name:  the category of the book that we're deleting
-          item_name:  the item that we're deleting
+    ####Args####
+        + category_id:  the id of the category of the book that we're deleting
+        + item_id:  the id of the item that we're deleting
 
-    **Returns:**
-        GET:
-            template:  deleteItem.html
-                item:  the item object
-        POST:
-            redirect:  showItems
-                category_name:  the category of the book
+    ####Returns####
+    #####GET#####
+        + template:  deleteItem.html
+        + item - the item object
+    #####POST#####
+        + redirect:  showItems
+        + category_id - the id of the category of the book
     """
-    if not checkLogin():
-        return redirect(url_for('showLogin'))
-    item = session.query(Item).filter_by(name=item_name).one()
-    # If not the author of this item, redirect to home page
-    if item.user_id != login_session['user_id']:
-        flash("You can only delete your own books.", 'error')
+    item = session.query(Item).filter_by(id=item_id).one()
+    if not utils.creatorCheck(login_session, item.user_id, 'books', 'delete'):
         return redirect('/')
     if request.method == 'POST':
-        if item.image_name is not None:
-            os.remove(getImagePath(item.image_name))
-        session.delete(item)
-        session.commit()
-        flash("Book Successfully Deleted")
-        return redirect(url_for('showItems', category_name=category_name))
+        utils.deleteBook(session, item, True)
+        return redirect(url_for('showItems', category_id=category_id))
     else:
         return render_template('deleteItem.html', item=item)
 
@@ -559,48 +543,48 @@ def deleteItem(category_name, item_name):
 @app.route('/catalog.json')
 def catalogJSON():
     """
-    **Returns:**
-        genres:  JSON object of all genres and books
+    ####Returns####
+        + genres:  JSON object of all genres and books
     """
     categories = session.query(Category).order_by(Category.name.asc())
     return jsonify(genres=[c.serialize for c in categories])
 
 
 # === Return a category JSON object. ===
-@app.route('/catalog/<category_name>.json')
-def categoryJSON(category_name):
+@app.route('/catalog/<int:category_id>/category.json')
+def categoryJSON(category_id):
     """
-    **Args:**
-        category_name:  the category of the book
+    ####Args####
+        + category_id:  the id of the category of the book
 
-    **Returns:**
-        genre:  JSON object of the genre
+    ####Returns####
+        + genre:  JSON object of the genre
     """
-    category = session.query(Category).filter_by(name=category_name).one()
+    category = session.query(Category).filter_by(id=category_id).one()
     return jsonify(genre=category.serialize)
 
 
 # === Return a book JSON object. ===
-@app.route('/catalog/<category_name>/<item_name>.json')
-def itemJSON(category_name, item_name):
+@app.route('/catalog/<int:category_id>/<int:item_id>/item.json')
+def itemJSON(category_id, item_id):
     """
-    **Args:**
-        category_name:  the category of the book
-        item_name:  the book
+    ####Args####
+        + category_id:  the id of the category of the book
+        + item_id:  the id of the book
 
-    **Returns:**
-        book:  JSON object of the book
+    ####Returns####
+        + book:  JSON object of the book
     """
-    item = session.query(Item).filter_by(name=item_name).one()
+    item = session.query(Item).filter_by(id=item_id).one()
     return jsonify(book=item.serialize)
 
 
 # === Return the users JSON object. ===
-@app.route('/catalog/user.json')
-def userJSON():
+@app.route('/catalog/users.json')
+def usersJSON():
     """
-    **Returns:**
-        users:  JSON object of all users
+    ####Returns####
+        + users:  JSON object of all users
     """
     users = session.query(User).order_by(User.name.asc())
     return jsonify(users=[u.serialize for u in users])
@@ -610,318 +594,86 @@ def userJSON():
 @app.route('/catalog.xml')
 def catalogXML():
     """
-    **Returns:**
-        genres:  XML object of all genres and books
+    ####Returns####
+        + genres:  XML object of all genres and books
     """
     root = ET.Element('genres')
-    return app.response_class(ET.tostring(getCatalogXML(root),
-                                          encoding='us-ascii',
-                                          method='xml'),
-                              mimetype='application/xml')
+    return app.response_class(
+        ET.tostring(
+            Category.getCatalogXML(session, root),
+            encoding='us-ascii',
+            method='xml'),
+        mimetype='application/xml')
 
 
 # === Return a category XML object. ===
-@app.route('/catalog/<category_name>.xml')
-def categoryXML(category_name):
+@app.route('/catalog/<int:category_id>/category.xml')
+def categoryXML(category_id):
     """
-    **Args:**
-        category_name:  the category of the book
+    ####Args####
+        + category_id:  the id of the category of the book
 
-    **Returns:**
-        genre:  XML object of the genre
+    ####Returns####
+        + genre:  XML object of the genre
     """
+    category = session.query(Category).filter_by(id=category_id).one()
     root = ET.Element('genre')
-    return app.response_class(ET.tostring(getCategoryXML(category_name, root),
-                                          encoding='us-ascii',
-                                          method='xml'),
-                              mimetype='application/xml')
+    return app.response_class(
+        ET.tostring(
+            Category.getCategoryXML(session, category.id, root),
+            encoding='us-ascii',
+            method='xml'),
+        mimetype='application/xml')
 
 
 # === Return a book XML object. ===
-@app.route('/catalog/<category_name>/<item_name>.xml')
-def itemXML(category_name, item_name):
+@app.route('/catalog/<int:category_id>/<int:item_id>/item.xml')
+def itemXML(category_id, item_id):
     """
-    **Args:**
-        category_name:  the category of the book
-        item_name:  the book
+    ####Args####
+        + category_id:  the id of the category of the book
+        + item_id:  the id of the book
 
-    **Returns:**
-        book:  XML object of the book
+    ####Returns####
+        + book:  XML object of the book
     """
     root = ET.Element('book')
-    return app.response_class(ET.tostring(getItemXML(item_name, root),
-                                          encoding='us-ascii',
-                                          method='xml'),
-                              mimetype='application/xml')
+    return app.response_class(
+        ET.tostring(
+            Item.getItemXML(session, item_id, root),
+            encoding='us-ascii',
+            method='xml'),
+        mimetype='application/xml')
 
 
 # === Return the users XML object. ===
-@app.route('/user.xml')
-def userXML():
+@app.route('/users.xml')
+def usersXML():
     """
-    **Returns:**
-        users:  XML object of all users
+    ####Returns####
+        + users:  XML object of all users
     """
     root = ET.Element('users')
-    return app.response_class(ET.tostring(getUsersXML(root),
-                                          encoding='us-ascii',
-                                          method='xml'),
-                              mimetype='application/xml')
+    return app.response_class(
+        ET.tostring(
+            User.getUsersXML(session, root),
+            encoding='us-ascii',
+            method='xml'),
+        mimetype='application/xml')
 
 
 # === Return the Atom feed of recently added/modified books. ===
 @app.route('/recent.atom')
 def recentItemsAtom():
     """
-    **Returns:**
-        Recent Items:  Atom feed of recent books
+    ####Returns####
+        + Recent Items:  Atom feed of recent books
     """
-    return getRecentItemsAtom('Recent Items',
-                              request.url,
-                              request.url_root).get_response()
-
-
-# === Create a new user. ===
-def createUser(login_session):
-    """
-    **Args:**
-        login_session:  session variables object
-
-    **Returns:**
-        user.id:  id of the new user
-    """
-    newUser = User(name=login_session['username'],
-                   email=login_session['email'],
-                   picture=login_session['picture'])
-    session.add(newUser)
-    session.commit()
-    user = session.query(User).filter_by(email=login_session['email']).one()
-    return user.id
-
-
-# === Get a user object. ===
-def getUserInfo(user_id):
-    """
-    **Args:**
-        user_id:  id of the user to retrieve
-
-    **Returns:**
-        user:  the user object
-    """
-    user = session.query(User).filter_by(id=user_id).one()
-    return user
-
-
-# === Get use id from email address. ===
-def getUserID(email):
-    """
-    **Args:**
-        email:  email address of the user
-
-    **Returns:**
-        user.id:  the user id
-    """
-    try:
-        user = session.query(User).filter_by(email=email).one()
-        return user.id
-    except:
-        return None
-
-
-# === Return boolean - whether or not user is logged in. ===
-def checkLogin():
-    if 'username' not in login_session:
-        return False
-    else:
-        return True
-
-
-# === Return XML object of a book. ===
-def getItemXML(item_name, root):
-    """
-    **Args:**
-        item_name:  name of the book
-        root:  the root XML node
-
-    **Returns:**
-        root:  the populated root XML node
-    """
-    item = session.query(Item).filter_by(name=item_name).one()
-    name = ET.SubElement(root, 'name')
-    name.text = item.name
-    description = ET.SubElement(root, 'description')
-    description.text = item.description
-    id = ET.SubElement(root, 'id')
-    id.text = str(item.id)
-    category = ET.SubElement(root, 'genre')
-    category.text = str(item.category.name)
-    user = ET.SubElement(root, 'created_by')
-    user.text = str(item.user.name)
-    date_added = ET.SubElement(root, 'date_added')
-    date_added.text = str(item.date_added)
-    date_modified = ET.SubElement(root, 'date_modified')
-    date_modified.text = str(item.date_modified)
-    image_name = ET.SubElement(root, 'image_name')
-    image_name.text = str(item.image_name)
-    return root
-
-
-# === Return XML object of a category. ===
-def getCategoryXML(category_name, root):
-    """
-    **Args:**
-        category_name:  name of the category
-        root:  the root XML node
-
-    **Returns:**
-        root:  the populated root XML node
-    """
-    category = session.query(Category).filter_by(name=category_name).one()
-    items = session.query(Item).filter_by(
-            category_id=category.id).order_by(Item.name.asc())
-    name = ET.SubElement(root, 'name')
-    name.text = category.name
-    id = ET.SubElement(root, 'id')
-    id.text = str(category.id)
-    user = ET.SubElement(root, 'created_by')
-    user.text = str(category.user.name)
-    books = ET.SubElement(root, 'books')
-    for item in items:
-        book = ET.SubElement(books, 'book')
-        getItemXML(item.name, book)
-    return root
-
-
-# === Return XML object of the catalog. ===
-def getCatalogXML(root):
-    """
-    **Args:**
-        root:  the root XML node
-
-    **Returns:**
-        root:  the populated root XML node
-    """
-    categories = session.query(Category).order_by(Category.name.asc())
-    for category in categories:
-        genre = ET.SubElement(root, 'genre')
-        getCategoryXML(category.name, genre)
-    return root
-
-
-# === Return XML object of all users. ===
-def getUsersXML(root):
-    """
-    **Args:**
-        root:  the root XML node
-
-    **Returns:**
-        root:  the populated root XML node
-    """
-    users = session.query(User).order_by(User.name.asc())
-    for user in users:
-        userNode = ET.SubElement(root, 'user')
-        name = ET.SubElement(userNode, 'name')
-        name.text = user.name
-        id = ET.SubElement(userNode, 'id')
-        id.text = str(user.id)
-        email = ET.SubElement(userNode, 'email')
-        email.text = user.email
-        picture = ET.SubElement(userNode, 'picture')
-        picture.text = user.picture
-    return root
-
-
-# === Return Atoms feed object of recently added/modified books. ===
-def getRecentItemsAtom(name, feed_url, url):
-    """
-    **Args:**
-        name:  the name of the feed
-        feed_url:  URL that dispalys the Atom feed
-        url:  root URL
-
-    **Returns:**
-        feed:  the populated Atom feed
-    """
-    feed = AtomFeed(name, feed_url=feed_url, url=url)
-    items = session.query(Item).order_by(Item.date_modified.desc()).limit(10)
-    for item in items:
-        feed.add(item.name, item.description,
-                 content_type='html',
-                 user=item.user.name,
-                 url=make_external(url_for('showItem',
-                                           category_name=item.category.name,
-                                           item_name=item.name)),
-                 updated=item.date_modified,
-                 published=item.date_added)
-    return feed
-
-
-# === Check to see if file is of an allowed type and format. ===
-def allowed_file(filename):
-    """
-    **Args:**
-        filename:  the filename to check
-
-    **Returns:**  boolean - is the filename and allowed type and correct format?
-    """
-    return '.' in filename and \
-        filename.rsplit('.', 1)[1] in ALLOWED_EXTENSIONS
-
-
-# === Get the correct path to a book image. ===
-def getImagePath(image_name):
-    """
-    **Args:**
-        image_name:  the name of the book
-
-    **Returns:**  the relative path of the image
-    """
-    return os.path.join(UPLOAD_FOLDER, image_name)
-
-
-# === Create the list of categories and add to session variables. ===
-def setCategories():
-    """
-    **Session Variables:**
-        login_session['categories']:  list of category names
-        login_session['cat_num']:  number of categories
-    """
-    categories = session.query(Category).order_by(Category.name.asc())
-    cat_num = session.query(Category).count()
-    login_session['categories'] = [c.serializePartial for c in categories]
-    login_session['cat_num'] = cat_num
-
-
-# === Add the selected theme css URL to the session. ===
-def setTheme(theme_name):
-    """
-    **Args:**
-        theme_name:  the name of the selected theme
-
-    **Session Variables:**
-        login_session['theme_url']:  URL of the selected Bootstrap css theme
-    """
-    theme_filename = 'css/bootstrap_{}.min.css'.format(theme_name)
-    login_session['theme_url'] = url_for('static', filename=theme_filename)
-
-
-# === Set the categories and theme URL session variables if not set. ===
-def setDefaults():
-    if 'categories' not in login_session or 'cat_num' not in login_session:
-        setCategories()
-    if 'theme_url' not in login_session:
-        setTheme(DEFAULT_THEME)
-
-
-# === Create a complete URL from root URL and relateive path. ===
-def make_external(url):
-    """
-    **Args:**
-        url:  relative URL
-
-    **Returns:**  the complete URL
-    """
-    return urljoin(request.url_root, url)
+    return Item.getRecentItemsAtom(
+        session,
+        'Recent Items',
+        request.url,
+        request.url_root).get_response()
 
 
 if __name__ == '__main__':

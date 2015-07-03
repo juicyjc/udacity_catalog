@@ -13,8 +13,8 @@
         </div>
         <div class="img-buttons">
             {% if is_creator %}
-            <a class="btn btn-primary btn-sm" href='{{ url_for('editItem', category_name=item.category.name, item_name=item.name) }}'>Edit</a>
-            <a class="btn btn-warning btn-sm" href='{{ url_for('deleteItem', category_name=item.category.name, item_name=item.name) }}'>Delete</a>
+            <a class="btn btn-primary btn-sm" href='{{ url_for('editItem', category_id=item.category.id, item_id=item.id) }}'>Edit</a>
+            <a class="btn btn-warning btn-sm" href='{{ url_for('deleteItem', category_id=item.category.id, item_id=item.id) }}'>Delete</a>
             {% endif %}
             <a class="btn btn-default btn-sm" href='{{ url_for('showCatalog') }}'>
                 <!-- <span class="glyphicon glyphicon-arrow-left"></span>Back -->
@@ -25,8 +25,8 @@
                     APIs <span class="caret"></span>
                 </button>
                 <ul class="dropdown-menu" role="menu">
-                    <li><a href="{{ url_for('itemJSON', category_name=item.category.name, item_name=item.name) }}">JSON</a></li>
-                    <li><a href="{{ url_for('itemXML', category_name=item.category.name, item_name=item.name) }}">XML</a></li>
+                    <li><a href="{{ url_for('itemJSON', category_id=item.category.id, item_id=item.id) }}">JSON</a></li>
+                    <li><a href="{{ url_for('itemXML', category_id=item.category.id, item_id=item.id) }}">XML</a></li>
                 </ul>
             </div>
         </div>
